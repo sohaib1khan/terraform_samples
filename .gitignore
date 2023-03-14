@@ -1,0 +1,11 @@
+# Exclude the secret_folder directory
+secret_folder/
+
+# Exclude the passwords.txt file
+passwords.txt
+
+# exclude terraform 
+terraform.tfstate.backup
+terraform.tfstate
+.terraform
+.terraform.lock.hcl
