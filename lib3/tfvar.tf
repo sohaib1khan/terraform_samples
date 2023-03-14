@@ -44,9 +44,29 @@ variable "lib3map" {
   }
 }
 
+
+# input variable
 variable "inputname" {
   type        = string
   description = "set the name of vpc"
+}
+
+
+# Tuples
+variable "lib3tuple" {
+  type        = tuple([string, number, string])
+  default     = ["cat", 1, "jaguar"]
+}
+
+# Objects
+variable "lib3objects" {
+  type        = map(object({name = string, port = list(number)}))
+  default     = {
+    ports = {
+      name = "ports"
+      port = [22, 80, 443]
+    }
+  }
 }
 
 
