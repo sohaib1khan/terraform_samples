@@ -1,0 +1,88 @@
+---
+- name: Install K3s on EC2 instance
+  hosts: k3s_server
+  become: true
+  vars:
+    k3s_version: "v1.28.4+k3s2"  # Update to match Terraform variable
+    k3s_server_args: "--tls-san {{ ansible_host }} --write-kubeconfig-mode 644"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - python3-pip
+          - unzip
+        state: present
+
+    - name: Download K3s installation script
+      get_url:
+        url: https://get.k3s.io
+        dest: /tmp/install-k3s.sh
+        mode: '0755'
+
+    - name: Install K3s server
+      shell: >
+        INSTALL_K3S_VERSION={{ k3s_version }} 
+        /tmp/install-k3s.sh server {{ k3s_server_args }}
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for K3s to be ready
+      wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        state: present
+        timeout: 300
+
+    - name: Create .kube directory for ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy kubeconfig to ubuntu user's directory
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/ubuntu/.kube/config
+        remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    - name: Replace localhost with server IP in kubeconfig
+      replace:
+        path: /home/ubuntu/.kube/config
+        regexp: 'https://127.0.0.1:6443'
+        replace: 'https://{{ ansible_host }}:6443'
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    - name: Install kubectl for ubuntu user
+      get_url:
+        url: https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Fetch kubeconfig to local machine
+      fetch:
+        src: /home/ubuntu/.kube/config
+        dest: ../bin/kubeconfig
+        flat: yes
+
+    - name: Validate K3s installation
+      command: kubectl get nodes
+      register: kubectl_output
+      changed_when: false
+      become: false
+
+    - name: Display nodes information
+      debug:
+        var: kubectl_output.stdout_lines

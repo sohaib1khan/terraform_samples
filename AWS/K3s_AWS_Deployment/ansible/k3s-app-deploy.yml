@@ -1,0 +1,101 @@
+---
+- name: Deploy an application to K3s
+  hosts: k3s_server
+  become: false
+  vars:
+    namespace: "demo-app"
+    app_name: "hello-world"
+
+  tasks:
+    - name: Create namespace directory
+      file:
+        path: /home/ubuntu/k8s
+        state: directory
+        mode: '0755'
+
+    - name: Create namespace manifest
+      copy:
+        dest: /home/ubuntu/k8s/namespace.yml
+        content: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: {{ namespace }}
+        mode: '0644'
+
+    - name: Create deployment manifest
+      copy:
+        dest: /home/ubuntu/k8s/deployment.yml
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: {{ app_name }}
+            namespace: {{ namespace }}
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: {{ app_name }}
+            template:
+              metadata:
+                labels:
+                  app: {{ app_name }}
+              spec:
+                containers:
+                - name: {{ app_name }}
+                  image: rancher/hello-world:latest
+                  ports:
+                  - containerPort: 80
+        mode: '0644'
+
+    - name: Create service manifest
+      copy:
+        dest: /home/ubuntu/k8s/service.yml
+        content: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: {{ app_name }}
+            namespace: {{ namespace }}
+          spec:
+            type: NodePort
+            ports:
+            - port: 80
+              targetPort: 80
+              nodePort: 30080
+            selector:
+              app: {{ app_name }}
+        mode: '0644'
+
+    - name: Create namespace
+      command: kubectl apply -f /home/ubuntu/k8s/namespace.yml
+      register: namespace_result
+      changed_when: "'created' in namespace_result.stdout or 'configured' in namespace_result.stdout"
+
+    - name: Deploy application
+      command: kubectl apply -f /home/ubuntu/k8s/deployment.yml
+      register: deployment_result
+      changed_when: "'created' in deployment_result.stdout or 'configured' in deployment_result.stdout"
+
+    - name: Create service
+      command: kubectl apply -f /home/ubuntu/k8s/service.yml
+      register: service_result
+      changed_when: "'created' in service_result.stdout or 'configured' in service_result.stdout"
+
+    - name: Wait for deployment to be ready
+      shell: kubectl -n {{ namespace }} rollout status deployment/{{ app_name }}
+      changed_when: false
+
+    - name: Get service details
+      command: kubectl -n {{ namespace }} get svc {{ app_name }} -o wide
+      register: service_details
+      changed_when: false
+
+    - name: Display service information
+      debug:
+        var: service_details.stdout_lines
+
+    - name: Get application URL
+      debug:
+        msg: "Application is available at http://{{ ansible_host }}:30080"
