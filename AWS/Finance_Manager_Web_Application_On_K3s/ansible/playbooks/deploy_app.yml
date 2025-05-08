@@ -1,0 +1,239 @@
+---
+# Playbook for deploying the Finance Manager application to K3s
+
+# Create a directory for Kubernetes manifests
+- name: Create directory for Kubernetes manifests
+  file:
+    path: /home/ec2-user/finance-app
+    state: directory
+    owner: ec2-user
+    group: ec2-user
+    mode: '0755'
+
+# Check if the deployment manifest exists in files directory
+- name: Check if deployment manifest exists in files directory
+  stat:
+    path: "{{ playbook_dir }}/../files/finance-app-deployment.yml"
+  register: deployment_in_files
+  delegate_to: localhost
+
+# Check if the deployment manifest exists in playbooks directory
+- name: Check if deployment manifest exists in playbooks directory
+  stat:
+    path: "{{ playbook_dir }}/finance-app-deployment.yml"
+  register: deployment_in_playbooks
+  delegate_to: localhost
+
+# Copy the deployment manifest from playbooks to the server if that's where it is
+- name: Copy deployment manifest from playbooks directory
+  copy:
+    src: "{{ playbook_dir }}/finance-app-deployment.yml"
+    dest: /home/ec2-user/finance-app/finance-app-deployment.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: not deployment_in_files.stat.exists and deployment_in_playbooks.stat.exists
+
+# Copy the deployment manifest from files to the server if that's where it is
+- name: Copy deployment manifest from files directory
+  copy:
+    src: "{{ playbook_dir }}/../files/finance-app-deployment.yml"
+    dest: /home/ec2-user/finance-app/finance-app-deployment.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: deployment_in_files.stat.exists
+
+# Create a deployment manifest if neither exists
+- name: Create deployment manifest if missing
+  copy:
+    content: |
+      ---
+      # Deployment manifest for the Finance Manager application
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: finance-app
+        labels:
+          app: finance-app
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: finance-app
+        template:
+          metadata:
+            labels:
+              app: finance-app
+          spec:
+            containers:
+            - name: finance-app
+              image: skhan1010/finance-manager-app:v1
+              ports:
+              - containerPort: 80
+                name: http
+              resources:
+                requests:
+                  memory: "64Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "500m"
+              livenessProbe:
+                httpGet:
+                  path: /
+                  port: 80
+                initialDelaySeconds: 30
+                periodSeconds: 10
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 80
+                initialDelaySeconds: 5
+                periodSeconds: 5
+    dest: /home/ec2-user/finance-app/finance-app-deployment.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: not deployment_in_files.stat.exists and not deployment_in_playbooks.stat.exists
+
+# Similar checks for the service manifest
+- name: Check if service manifest exists in files directory
+  stat:
+    path: "{{ playbook_dir }}/../files/finance-app-service.yml"
+  register: service_in_files
+  delegate_to: localhost
+
+# Check if the service manifest exists in playbooks directory with plural "services"
+- name: Check if service manifest exists in playbooks directory (with plural "services")
+  stat:
+    path: "{{ playbook_dir }}/finance-app-services.yml"
+  register: services_in_playbooks
+  delegate_to: localhost
+
+# Check if the service manifest exists in playbooks directory with singular "service"
+- name: Check if service manifest exists in playbooks directory (with singular "service")
+  stat:
+    path: "{{ playbook_dir }}/finance-app-service.yml"
+  register: service_in_playbooks
+  delegate_to: localhost
+
+# Copy the service manifest from playbooks (plural) to the server if that's where it is
+- name: Copy service manifest from playbooks directory (plural version)
+  copy:
+    src: "{{ playbook_dir }}/finance-app-services.yml"
+    dest: /home/ec2-user/finance-app/finance-app-service.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: not service_in_files.stat.exists and services_in_playbooks.stat.exists
+
+# Copy the service manifest from playbooks (singular) to the server if that's where it is
+- name: Copy service manifest from playbooks directory (singular version)
+  copy:
+    src: "{{ playbook_dir }}/finance-app-service.yml"
+    dest: /home/ec2-user/finance-app/finance-app-service.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: not service_in_files.stat.exists and service_in_playbooks.stat.exists
+
+# Copy the service manifest from files to the server if that's where it is
+- name: Copy service manifest from files directory
+  copy:
+    src: "{{ playbook_dir }}/../files/finance-app-service.yml"
+    dest: /home/ec2-user/finance-app/finance-app-service.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: service_in_files.stat.exists
+
+# Create a service manifest if none exists
+- name: Create service manifest if missing
+  copy:
+    content: |
+      ---
+      # Service manifest for the Finance Manager application
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: finance-app
+        labels:
+          app: finance-app
+      spec:
+        type: NodePort
+        ports:
+        - port: 80
+          targetPort: 80
+          nodePort: 30001
+          protocol: TCP
+          name: http
+        selector:
+          app: finance-app
+    dest: /home/ec2-user/finance-app/finance-app-service.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: '0644'
+  when: not service_in_files.stat.exists and not service_in_playbooks.stat.exists and not services_in_playbooks.stat.exists
+
+# Ensure kubectl is available
+- name: Create symlink to k3s kubectl
+  file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+  ignore_errors: yes
+
+# Apply the Kubernetes manifests to deploy the application
+- name: Apply the deployment manifest
+  become: false  # Run as ec2-user, not root
+  command: kubectl apply -f /home/ec2-user/finance-app/finance-app-deployment.yml
+  register: deploy_result
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Display deployment result
+- name: Display deployment result
+  debug:
+    msg: "{{ deploy_result.stdout_lines }}"
+
+# Apply the service manifest
+- name: Apply the service manifest
+  become: false  # Run as ec2-user, not root
+  command: kubectl apply -f /home/ec2-user/finance-app/finance-app-service.yml
+  register: service_result
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Display service result
+- name: Display service result
+  debug:
+    msg: "{{ service_result.stdout_lines }}"
+
+# Wait for the deployment to be ready
+- name: Wait for deployment to be ready
+  become: false  # Run as ec2-user, not root
+  shell: kubectl rollout status deployment/finance-app --timeout=300s
+  register: rollout_status
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Display rollout status
+- name: Display rollout status
+  debug:
+    msg: "{{ rollout_status.stdout_lines }}"
+
+# Get the NodePort information for the application
+- name: Get service information
+  become: false  # Run as ec2-user, not root
+  shell: kubectl get svc finance-app -o jsonpath='{.spec.ports[0].nodePort}'
+  register: node_port
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Display NodePort information
+- name: Display NodePort information
+  debug:
+    msg: "Finance Manager app is accessible at http://{{ ansible_host }}:{{ node_port.stdout }}"

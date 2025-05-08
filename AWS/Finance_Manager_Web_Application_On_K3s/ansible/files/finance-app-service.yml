@@ -1,0 +1,20 @@
+---
+# Service manifest for the Finance Manager application
+apiVersion: v1
+kind: Service
+metadata:
+  name: finance-app
+  labels:
+    app: finance-app
+spec:
+  # Using NodePort to expose the service externally
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    # Using the predefined NodePort 30001 as configured in the security group
+    nodePort: 30001
+    protocol: TCP
+    name: http
+  selector:
+    app: finance-app

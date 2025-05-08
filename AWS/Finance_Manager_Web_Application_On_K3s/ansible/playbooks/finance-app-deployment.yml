@@ -1,0 +1,47 @@
+---
+# Deployment manifest for the Finance Manager application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finance-app
+  labels:
+    app: finance-app
+spec:
+  # We're using a single replica since we're deploying on a single node
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finance-app
+  template:
+    metadata:
+      labels:
+        app: finance-app
+    spec:
+      containers:
+      - name: finance-app
+        # Using the specified Docker Hub image
+        image: skhan1010/finance-manager-app:v1
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          # Resource requests and limits for the free tier EC2 instance
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5

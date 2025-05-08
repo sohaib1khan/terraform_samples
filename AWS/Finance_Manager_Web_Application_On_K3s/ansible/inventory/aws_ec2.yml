@@ -1,0 +1,32 @@
+---
+# AWS EC2 dynamic inventory configuration
+plugin: aws_ec2
+
+# AWS credentials are automatically loaded from AWS CLI configuration
+# No need to specify them here if using aws-login.sh
+
+# Regions to search for instances
+regions:
+  - us-east-1  # Change this to match your deployment region
+
+# Filters to identify only our Finance Manager EC2 instances
+filters:
+  tag:Name: k3s-finance-app
+  instance-state-name: running
+
+# Define groups based on instance tags
+keyed_groups:
+  # Create a group for each tag
+  - prefix: tag
+    key: tags
+
+# Define additional groups based on instance attributes
+groups:
+  k3s_server: "'k3s-finance-app' in tags.Name"
+
+# Configure instance connection settings
+compose:
+  # Set ansible_host to the public IP address
+  ansible_host: public_ip_address
+  # Store private IP for internal references
+  private_ip: private_ip_address

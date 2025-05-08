@@ -1,0 +1,105 @@
+---
+# Main playbook for deploying K3s and Finance Manager application
+
+- name: Deploy K3s and Finance Manager Application
+  hosts: k3s_server
+  become: true
+  gather_facts: true
+
+  tasks:
+    # Check if system is ready
+    - name: Check system connectivity
+      ping:
+
+    # Update system packages using dnf instead of yum
+    - name: Update system packages
+      dnf:
+        name: '*'
+        state: latest
+        update_only: yes
+      register: dnf_update
+      
+    # Fallback to yum if dnf is not available
+    - name: Update system packages with yum (fallback)
+      when: dnf_update is failed
+      yum:
+        name: '*'
+        state: latest
+        update_only: yes
+      ignore_errors: yes
+
+    # Install required packages
+    - name: Install required packages with dnf
+      dnf:
+        name:
+          - curl
+          - git
+          - python3-pip
+          - unzip
+          - jq
+        state: present
+      register: dnf_install
+
+    # Fallback to yum if dnf is not available
+    - name: Install required packages with yum (fallback)
+      when: dnf_install is failed
+      yum:
+        name:
+          - curl
+          - git
+          - python3-pip
+          - unzip
+          - jq
+        state: present
+      ignore_errors: yes
+
+    # Alternative approach using shell
+    - name: Install required packages with shell command (if module approaches fail)
+      when: (dnf_install is failed) and (yum_install is failed)
+      shell: |
+        if command -v dnf &>/dev/null; then
+          dnf install -y curl git python3-pip unzip jq
+        elif command -v yum &>/dev/null; then
+          yum install -y curl git python3-pip unzip jq
+        else
+          echo "No package manager found"
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      register: package_install
+      changed_when: "'Installing' in package_install.stdout"
+
+    # Include K3s installation tasks
+    - name: Include K3s installation tasks
+      include_tasks: install_k3s.yml
+
+    # Wait for K3s to be ready before deploying applications
+    - name: Wait for K3s to be ready
+      wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        state: present
+        timeout: 300
+      register: k3s_config
+
+    # Set up kubectl configuration for the current user
+    - name: Create .kube directory
+      file:
+        path: /home/ec2-user/.kube
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: '0700'
+
+    - name: Copy K3s config to user's .kube directory
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/ec2-user/.kube/config
+        remote_src: yes
+        owner: ec2-user
+        group: ec2-user
+        mode: '0600'
+
+    # Include application deployment tasks
+    - name: Include application deployment tasks
+      include_tasks: deploy_app.yml

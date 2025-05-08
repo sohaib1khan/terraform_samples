@@ -1,0 +1,73 @@
+---
+# Playbook for installing K3s on the EC2 instance
+
+# Check if K3s is already installed
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+# Set up K3s if not already installed
+- name: Download K3s installation script
+  get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s-install.sh
+    mode: '0755'
+  when: not k3s_binary.stat.exists
+
+# Ensure required dependencies are installed
+- name: Ensure dependencies for K3s are installed
+  shell: |
+    if command -v dnf &>/dev/null; then
+      dnf install -y container-selinux iptables
+    elif command -v yum &>/dev/null; then
+      yum install -y container-selinux iptables
+    else
+      echo "No package manager found"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  register: deps_install
+  changed_when: "'Installing' in deps_install.stdout"
+  when: not k3s_binary.stat.exists
+
+# Install K3s server
+- name: Install K3s server
+  shell: |
+    INSTALL_K3S_SKIP_DOWNLOAD=false INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh /tmp/k3s-install.sh
+  args:
+    creates: /usr/local/bin/k3s
+  register: k3s_server_install
+  when: not k3s_binary.stat.exists
+
+# Get K3s token (for adding worker nodes later if needed)
+- name: Get K3s token
+  slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: node_token
+  when: k3s_server_install is changed
+
+# Display K3s token (useful if you want to add worker nodes later)
+- name: Display K3s token
+  debug:
+    msg: "K3s token: {{ node_token['content'] | b64decode }}"
+  when: node_token is defined
+
+# Wait for K3s to start
+- name: Wait for K3s to start
+  systemd:
+    name: k3s
+    state: started
+    enabled: yes
+
+# Verify that K3s is running
+- name: Verify K3s is running
+  command: systemctl status k3s
+  register: k3s_status
+  changed_when: false
+
+# Display K3s status
+- name: Display K3s status
+  debug:
+    msg: "{{ k3s_status.stdout_lines }}"
